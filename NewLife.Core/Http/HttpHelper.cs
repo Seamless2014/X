@@ -359,13 +359,17 @@ public static class HttpHelper
         var filter = Filter;
         try
         {
-            if (filter != null) await filter.OnRequest(client, request, null);
+            if (filter != null) await filter.OnRequest(client, request, null, cancellationToken);
 
             var response = await client.SendAsync(request, cancellationToken);
 
-            if (filter != null) await filter.OnResponse(client, response, request);
+            if (filter != null) await filter.OnResponse(client, response, request, cancellationToken);
 
+#if NET5_0_OR_GREATER
+            var result = await response.Content.ReadAsStringAsync(cancellationToken);
+#else
             var result = await response.Content.ReadAsStringAsync();
+#endif
 
             // 增加埋点数据
             span?.AppendTag(result);
@@ -377,7 +381,7 @@ public static class HttpHelper
             // 跟踪异常
             span?.SetError(ex, null);
 
-            if (filter != null) await filter.OnError(client, ex, request);
+            if (filter != null) await filter.OnError(client, ex, request, cancellationToken);
 
             throw;
         }
@@ -410,6 +414,34 @@ public static class HttpHelper
         using var fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
         await rs.CopyToAsync(fs);
         await fs.FlushAsync();
+    }
+
+    /// <summary>下载文件</summary>
+    /// <param name="client">Http客户端</param>
+    /// <param name="requestUri">请求资源地址</param>
+    /// <param name="fileName">目标文件名</param>
+    /// <param name="cancellationToken">取消通知</param>
+    public static async Task DownloadFileAsync(this HttpClient client, String requestUri, String fileName, CancellationToken cancellationToken)
+    {
+#if NET5_0_OR_GREATER
+        var rs = await client.GetStreamAsync(requestUri, cancellationToken);
+        fileName.EnsureDirectory(true);
+        using var fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        await rs.CopyToAsync(fs, cancellationToken);
+        await fs.FlushAsync(cancellationToken);
+#elif NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        var rs = await client.GetStreamAsync(requestUri);
+        fileName.EnsureDirectory(true);
+        using var fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        await rs.CopyToAsync(fs, cancellationToken);
+        await fs.FlushAsync(cancellationToken);
+#else
+        var rs = await client.GetStreamAsync(requestUri);
+        fileName.EnsureDirectory(true);
+        using var fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        await rs.CopyToAsync(fs, 81920, cancellationToken);
+        await fs.FlushAsync(cancellationToken);
+#endif
     }
 
     /// <summary>上传文件以及表单数据</summary>

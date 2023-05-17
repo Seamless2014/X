@@ -115,6 +115,13 @@ public class NetServer : DisposeBase, IServer, ILogFeature
     /// <summary>是否输出接收日志。默认false</summary>
     public Boolean LogReceive { get; set; }
 
+    /// <summary>服务提供者</summary>
+    /// <remarks>
+    /// 用于网络服务器内部解析各种服务，可以直接赋值或者依赖注入。
+    /// 网络会话默认使用该提供者，应用系统可以在网络会话中创建Scope版服务提供者。
+    /// </remarks>
+    public IServiceProvider ServiceProvider { get; set; }
+
     /// <summary>用户会话数据</summary>
     public IDictionary<String, Object> Items { get; set; } = new NullableDictionary<String, Object>();
 
@@ -132,7 +139,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
 
         Servers = new List<ISocketServer>();
 
-        if (Setting.Current.Debug) Log = XTrace.Log;
+        if (SocketSetting.Current.Debug) Log = XTrace.Log;
     }
 
     /// <summary>通过指定监听地址和端口实例化一个网络服务器</summary>
@@ -381,6 +388,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
         if (ns is NetSession ns2)
         {
             ns2.ID = Interlocked.Increment(ref _sessionID);
+            //ns2.ServiceProvider = ServiceProvider;
             ns2.Log = SessionLog;
         }
         ns.Host = this;
@@ -450,7 +458,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
     /// <param name="session"></param>
     protected virtual void AddSession(INetSession session)
     {
-        if (session.Host == null) session.Host = this;
+        session.Host ??= this;
 
         if (_Sessions.TryAdd(session.ID, session))
             session.OnDisposed += (s, e) => _Sessions.Remove((s as INetSession).ID);
@@ -515,7 +523,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
         return Task.WhenAll(ts).ContinueWith(t => Sessions.Count);
     }
 
-    /// <summary>群发管道消息给所有客户端。支持协议编码</summary>
+    /// <summary>群发管道消息给所有客户端。不等待，支持协议编码</summary>
     /// <param name="message">应用消息，底层对其进行协议编码</param>
     /// <param name="predicate">过滤器，判断指定会话是否需要发送</param>
     /// <returns>已群发客户端总数</returns>
@@ -590,7 +598,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
                     svr.Local.Address = addr;
                     svr.Local.Port = port;
                     //svr.AddressFamily = family;
-                    svr.Tracer = Tracer;
+                    //svr.Tracer = SocketTracer;
 
                     // 协议端口不能是已经被占用
                     if (!svr.Local.CheckPort()) list.Add(svr);
@@ -649,7 +657,7 @@ public class NetServer : DisposeBase, IServer, ILogFeature
     {
         get
         {
-            if (_LogPrefix == null) _LogPrefix = Name;
+            _LogPrefix ??= Name;
             return _LogPrefix;
         }
         set => _LogPrefix = value;
